@@ -2,6 +2,7 @@
 import { keysApi } from "@/api/keys";
 import { settingsApi } from "@/api/settings";
 import ProxyKeysInput from "@/components/common/ProxyKeysInput.vue";
+import { CHANNEL_CONFIGS } from "@/config/channels";
 import type { Group, GroupConfigOption, UpstreamInfo } from "@/types/models";
 import { Add, Close, HelpCircleOutline, Remove } from "@vicons/ionicons5";
 import {
@@ -53,7 +54,7 @@ interface GroupFormData {
   display_name: string;
   description: string;
   upstreams: UpstreamInfo[];
-  channel_type: "anthropic" | "gemini" | "openai";
+  channel_type: "anthropic" | "gemini" | "openai" | "bedrock";
   sort: number;
   test_model: string;
   validation_endpoint: string;
@@ -97,42 +98,23 @@ const userModifiedFields = ref({
 
 // 根据渠道类型动态生成占位符提示
 const testModelPlaceholder = computed(() => {
-  switch (formData.channel_type) {
-    case "openai":
-      return "gpt-4.1-nano";
-    case "gemini":
-      return "gemini-2.0-flash-lite";
-    case "anthropic":
-      return "claude-3-haiku-20240307";
-    default:
-      return "请输入模型名称";
-  }
+  const config = CHANNEL_CONFIGS[formData.channel_type];
+  return config?.testModelPlaceholder || "请输入模型名称";
 });
 
 const upstreamPlaceholder = computed(() => {
-  switch (formData.channel_type) {
-    case "openai":
-      return "https://api.openai.com";
-    case "gemini":
-      return "https://generativelanguage.googleapis.com";
-    case "anthropic":
-      return "https://api.anthropic.com";
-    default:
-      return "请输入上游地址";
-  }
+  const config = CHANNEL_CONFIGS[formData.channel_type];
+  return config?.upstreamPlaceholder || "请输入上游地址";
 });
 
 const validationEndpointPlaceholder = computed(() => {
-  switch (formData.channel_type) {
-    case "openai":
-      return "/v1/chat/completions";
-    case "anthropic":
-      return "/v1/messages";
-    case "gemini":
-      return ""; // Gemini 不显示此字段
-    default:
-      return "请输入验证端点路径";
-  }
+  const config = CHANNEL_CONFIGS[formData.channel_type];
+  return config?.validationEndpoint || "";
+});
+
+const showValidationEndpoint = computed(() => {
+  const config = CHANNEL_CONFIGS[formData.channel_type];
+  return config?.showValidationEndpoint ?? true;
 });
 
 // 表单验证规则
@@ -222,29 +204,13 @@ watch(
 
 // 获取旧渠道类型的默认值（用于比较）
 function getOldDefaultTestModel(channelType: string): string {
-  switch (channelType) {
-    case "openai":
-      return "gpt-4.1-nano";
-    case "gemini":
-      return "gemini-2.0-flash-lite";
-    case "anthropic":
-      return "claude-3-haiku-20240307";
-    default:
-      return "";
-  }
+  const config = CHANNEL_CONFIGS[channelType];
+  return config?.testModelPlaceholder || "";
 }
 
 function getOldDefaultUpstream(channelType: string): string {
-  switch (channelType) {
-    case "openai":
-      return "https://api.openai.com";
-    case "gemini":
-      return "https://generativelanguage.googleapis.com";
-    case "anthropic":
-      return "https://api.anthropic.com";
-    default:
-      return "";
-  }
+  const config = CHANNEL_CONFIGS[channelType];
+  return config?.upstreamPlaceholder || "";
 }
 
 // 重置表单
@@ -567,7 +533,7 @@ async function handleSubmit() {
               label="测试路径"
               path="validation_endpoint"
               class="form-item-half"
-              v-if="formData.channel_type !== 'gemini'"
+              v-if="showValidationEndpoint"
             >
               <template #label>
                 <div class="form-label-with-tooltip">
@@ -594,7 +560,7 @@ async function handleSubmit() {
               />
             </n-form-item>
 
-            <!-- 当gemini渠道时，测试路径不显示，需要一个占位div保持布局 -->
+            <!-- 当不显示验证端点时，需要一个占位div保持布局 -->
             <div v-else class="form-item-half" />
           </div>
 

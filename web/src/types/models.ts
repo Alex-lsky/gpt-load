@@ -36,7 +36,7 @@ export interface Group {
   description: string;
   sort: number;
   test_model: string;
-  channel_type: "openai" | "gemini" | "anthropic";
+  channel_type: "openai" | "gemini" | "anthropic" | "bedrock";
   upstreams: UpstreamInfo[];
   validation_endpoint: string;
   config: Record<string, unknown>;
@@ -187,4 +187,12 @@ export interface ChartDataset {
 export interface ChartData {
   labels: string[];
   datasets: ChartDataset[];
+}
+
+// AWS 凭证接口
+export interface AWSCredentials {
+  access_key_id: string;
+  secret_access_key: string;
+  session_token?: string;
+  region: string;
 }

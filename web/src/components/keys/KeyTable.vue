@@ -643,6 +643,7 @@ function resetPage() {
       v-model:show="createDialogShow"
       :group-id="selectedGroup.id"
       :group-name="getGroupDisplayName(selectedGroup!)"
+      :group="selectedGroup"
       @success="loadKeys"
     />
 

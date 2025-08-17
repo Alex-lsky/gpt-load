@@ -83,5 +83,6 @@
   // Emmet 设置
   "emmet.includeLanguages": {
     "vue": "html"
-  }
+  },
+  "kiroAgent.configureMCP": "Disabled"
 }

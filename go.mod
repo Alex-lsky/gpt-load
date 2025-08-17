@@ -5,6 +5,8 @@ go 1.23.0
 toolchain go1.24.3
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.38.0
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.4
 	github.com/gin-contrib/gzip v1.2.3
 	github.com/gin-contrib/static v1.1.5
 	github.com/gin-gonic/gin v1.10.1
@@ -24,6 +26,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/aws/smithy-go v1.22.5 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
