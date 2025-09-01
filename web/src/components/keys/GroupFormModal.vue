@@ -15,6 +15,7 @@ import {
   NInputNumber,
   NModal,
   NSelect,
+  NSwitch,
   NTooltip,
   useMessage,
   type FormRules,
@@ -35,7 +36,14 @@ interface Emits {
 // 配置项类型
 interface ConfigItem {
   key: string;
-  value: number;
+  value: number | string | boolean;
+}
+
+// Header规则类型
+interface HeaderRuleItem {
+  key: string;
+  value: string;
+  action: "set" | "remove";
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -59,8 +67,9 @@ interface GroupFormData {
   test_model: string;
   validation_endpoint: string;
   param_overrides: string;
-  config: Record<string, number>;
+  config: Record<string, number | string | boolean>;
   configItems: ConfigItem[];
+  header_rules: HeaderRuleItem[];
   proxy_keys: string;
 }
 
@@ -82,6 +91,7 @@ const formData = reactive<GroupFormData>({
   param_overrides: "",
   config: {},
   configItems: [] as ConfigItem[],
+  header_rules: [] as HeaderRuleItem[],
   proxy_keys: "",
 });
 
@@ -238,6 +248,7 @@ function resetForm() {
     param_overrides: "",
     config: {},
     configItems: [],
+    header_rules: [],
     proxy_keys: "",
   });
 
@@ -256,10 +267,12 @@ function loadGroupData() {
     return;
   }
 
-  const configItems = Object.entries(props.group.config || {}).map(([key, value]) => ({
-    key,
-    value: Number(value) || 0,
-  }));
+  const configItems = Object.entries(props.group.config || {}).map(([key, value]) => {
+    return {
+      key,
+      value,
+    };
+  });
   Object.assign(formData, {
     name: props.group.name || "",
     display_name: props.group.display_name || "",
@@ -274,6 +287,11 @@ function loadGroupData() {
     param_overrides: JSON.stringify(props.group.param_overrides || {}, null, 2),
     config: {},
     configItems,
+    header_rules: (props.group.header_rules || []).map((rule: HeaderRuleItem) => ({
+      key: rule.key || "",
+      value: rule.value || "",
+      action: (rule.action as "set" | "remove") || "set",
+    })),
     proxy_keys: props.group.proxy_keys || "",
   });
 }
@@ -315,7 +333,7 @@ async function fetchGroupConfigOptions() {
 function addConfigItem() {
   formData.configItems.push({
     key: "",
-    value: 0,
+    value: "",
   });
 }
 
@@ -324,13 +342,58 @@ function removeConfigItem(index: number) {
   formData.configItems.splice(index, 1);
 }
 
+// 添加Header规则
+function addHeaderRule() {
+  formData.header_rules.push({
+    key: "",
+    value: "",
+    action: "set",
+  });
+}
+
+// 删除Header规则
+function removeHeaderRule(index: number) {
+  formData.header_rules.splice(index, 1);
+}
+
+// 规范化Header Key到Canonical格式（模拟HTTP标准）
+function canonicalHeaderKey(key: string): string {
+  if (!key) {
+    return key;
+  }
+  return key
+    .split("-")
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join("-");
+}
+
+// 验证Header Key唯一性（使用Canonical格式对比）
+function validateHeaderKeyUniqueness(
+  rules: HeaderRuleItem[],
+  currentIndex: number,
+  key: string
+): boolean {
+  if (!key.trim()) {
+    return true;
+  }
+
+  const canonicalKey = canonicalHeaderKey(key.trim());
+  return !rules.some(
+    (rule, index) => index !== currentIndex && canonicalHeaderKey(rule.key.trim()) === canonicalKey
+  );
+}
+
 // 当配置项的key改变时，设置默认值
 function handleConfigKeyChange(index: number, key: string) {
   const option = configOptions.value.find(opt => opt.key === key);
   if (option) {
-    formData.configItems[index].value = option.default_value || 0;
+    formData.configItems[index].value = option.default_value;
   }
 }
+
+const getConfigOption = (key: string) => {
+  return configOptions.value.find(opt => opt.key === key);
+};
 
 // 关闭弹窗
 function handleClose() {
@@ -360,10 +423,16 @@ async function handleSubmit() {
     }
 
     // 将configItems转换为config对象
-    const config: Record<string, number> = {};
+    const config: Record<string, number | string | boolean> = {};
     formData.configItems.forEach((item: ConfigItem) => {
       if (item.key && item.key.trim()) {
-        config[item.key] = item.value;
+        const option = configOptions.value.find(opt => opt.key === item.key);
+        if (option && typeof option.default_value === "number" && typeof item.value === "string") {
+          const numValue = Number(item.value);
+          config[item.key] = isNaN(numValue) ? 0 : numValue;
+        } else {
+          config[item.key] = item.value;
+        }
       }
     });
 
@@ -379,6 +448,13 @@ async function handleSubmit() {
       validation_endpoint: formData.validation_endpoint,
       param_overrides: paramOverrides,
       config,
+      header_rules: formData.header_rules
+        .filter((rule: HeaderRuleItem) => rule.key.trim())
+        .map((rule: HeaderRuleItem) => ({
+          key: rule.key.trim(),
+          value: rule.value,
+          action: rule.action,
+        })),
       proxy_keys: formData.proxy_keys,
     };
 
@@ -406,7 +482,7 @@ async function handleSubmit() {
 <template>
   <n-modal :show="show" @update:show="handleClose" class="group-form-modal">
     <n-card
-      style="width: 800px"
+      class="group-form-card"
       :title="group ? '编辑分组' : '创建分组'"
       :bordered="false"
       size="huge"
@@ -428,6 +504,7 @@ async function handleSubmit() {
         label-placement="left"
         label-width="120px"
         require-mark-placement="right-hanging"
+        class="group-form"
       >
         <!-- 基础信息 -->
         <div class="form-section">
@@ -643,9 +720,14 @@ async function handleSubmit() {
               </div>
               <div class="upstream-weight">
                 <span class="weight-label">权重</span>
-                <n-tooltip trigger="hover" placement="top">
+                <n-tooltip trigger="hover" placement="top" style="width: 100%">
                   <template #trigger>
-                    <n-input-number v-model:value="upstream.weight" :min="1" placeholder="权重" />
+                    <n-input-number
+                      v-model:value="upstream.weight"
+                      :min="1"
+                      placeholder="权重"
+                      style="width: 100%"
+                    />
                   </template>
                   负载均衡权重，数值越大被选中的概率越高。例如：权重为2的上游被选中的概率是权重为1的两倍
                 </n-tooltip>
@@ -737,11 +819,24 @@ async function handleSubmit() {
                         />
                       </div>
                       <div class="config-value">
-                        <n-input-number
-                          v-model:value="configItem.value"
-                          placeholder="参数值"
-                          :precision="0"
-                        />
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-input-number
+                              v-if="typeof configItem.value === 'number'"
+                              v-model:value="configItem.value"
+                              placeholder="参数值"
+                              :precision="0"
+                              style="width: 100%"
+                            />
+                            <n-switch
+                              v-else-if="typeof configItem.value === 'boolean'"
+                              v-model:value="configItem.value"
+                              size="small"
+                            />
+                            <n-input v-else v-model:value="configItem.value" placeholder="参数值" />
+                          </template>
+                          {{ getConfigOption(configItem.key)?.description || "设置此配置项的值" }}
+                        </n-tooltip>
                       </div>
                       <div class="config-actions">
                         <n-button
@@ -774,6 +869,127 @@ async function handleSubmit() {
                   </n-button>
                 </div>
               </div>
+
+              <div class="config-section">
+                <h5 class="config-title-with-tooltip">
+                  自定义请求头
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
+                    </template>
+                    <div>
+                      在代理请求转发至上游服务前，对 HTTP 请求头进行添加、覆盖或移除操作。
+                      <br />
+                      支持动态变量：
+                      <br />
+                      • ${CLIENT_IP} - 客户端IP地址
+                      <br />
+                      • ${GROUP_NAME} - 分组名称
+                      <br />
+                      • ${API_KEY} - 当前轮询的API密钥
+                      <br />
+                      • ${TIMESTAMP_MS} - 毫秒时间戳
+                      <br />
+                      • ${TIMESTAMP_S} - 秒时间戳
+                    </div>
+                  </n-tooltip>
+                </h5>
+
+                <div class="header-rules-items">
+                  <n-form-item
+                    v-for="(headerRule, index) in formData.header_rules"
+                    :key="index"
+                    class="header-rule-row"
+                    :label="`请求头 ${index + 1}`"
+                  >
+                    <template #label>
+                      <div class="form-label-with-tooltip">
+                        请求头 {{ index + 1 }}
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-icon :component="HelpCircleOutline" class="help-icon" />
+                          </template>
+                          配置HTTP请求头的名称、值和操作类型。移除操作会删除指定的请求头
+                        </n-tooltip>
+                      </div>
+                    </template>
+                    <div class="header-rule-content">
+                      <div class="header-name">
+                        <n-input
+                          v-model:value="headerRule.key"
+                          placeholder="Header名称"
+                          :status="
+                            !validateHeaderKeyUniqueness(
+                              formData.header_rules,
+                              index,
+                              headerRule.key
+                            )
+                              ? 'error'
+                              : undefined
+                          "
+                        />
+                        <div
+                          v-if="
+                            !validateHeaderKeyUniqueness(
+                              formData.header_rules,
+                              index,
+                              headerRule.key
+                            )
+                          "
+                          class="error-message"
+                        >
+                          Header名称重复
+                        </div>
+                      </div>
+                      <div class="header-value" v-if="headerRule.action === 'set'">
+                        <n-input
+                          v-model:value="headerRule.value"
+                          placeholder="支持变量，例如：${CLIENT_IP}"
+                        />
+                      </div>
+                      <div class="header-value removed-placeholder" v-else>
+                        <span class="removed-text">将从请求中移除</span>
+                      </div>
+                      <div class="header-action">
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-switch
+                              v-model:value="headerRule.action"
+                              :checked-value="'remove'"
+                              :unchecked-value="'set'"
+                              size="small"
+                            />
+                          </template>
+                          开启移除开关将删除此请求头，关闭则添加或覆盖此请求头
+                        </n-tooltip>
+                      </div>
+                      <div class="header-actions">
+                        <n-button
+                          @click="removeHeaderRule(index)"
+                          type="error"
+                          quaternary
+                          circle
+                          size="small"
+                        >
+                          <template #icon>
+                            <n-icon :component="Remove" />
+                          </template>
+                        </n-button>
+                      </div>
+                    </div>
+                  </n-form-item>
+                </div>
+
+                <div style="margin-top: 12px; padding-left: 120px">
+                  <n-button @click="addHeaderRule" dashed style="width: 100%">
+                    <template #icon>
+                      <n-icon :component="Add" />
+                    </template>
+                    添加请求头
+                  </n-button>
+                </div>
+              </div>
+
               <div class="config-section">
                 <n-form-item path="param_overrides">
                   <template #label>
@@ -783,15 +999,15 @@ async function handleSubmit() {
                         <template #trigger>
                           <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
                         </template>
-                        使用JSON格式定义要覆盖的API请求参数。例如： {&quot;temperature&quot;: 0.7,
-                        &quot;max_tokens&quot;: 2000}。这些参数会在发送请求时合并到原始参数中
+                        使用JSON格式定义要覆盖的API请求参数。例如： {&quot;temperature&quot;:
+                        0.7}。这些参数会在发送请求时合并到原始参数中
                       </n-tooltip>
                     </div>
                   </template>
                   <n-input
                     v-model:value="formData.param_overrides"
                     type="textarea"
-                    placeholder='{"temperature": 0.7, "max_tokens": 2000}'
+                    placeholder='{"temperature": 0.7}'
                     :rows="4"
                   />
                 </n-form-item>
@@ -815,6 +1031,7 @@ async function handleSubmit() {
 
 <style scoped>
 .group-form-modal {
+  width: 800px;
   --n-color: rgba(255, 255, 255, 0.95);
 }
 
@@ -1059,17 +1276,141 @@ async function handleSubmit() {
 }
 
 .config-select {
-  flex: 1;
-  min-width: 200px;
+  flex: 0 0 200px;
 }
 
 .config-value {
-  flex: 0 0 140px;
+  flex: 1;
 }
 
 .config-actions {
   flex: 0 0 32px;
   display: flex;
   justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .group-form-card {
+    width: 100vw !important;
+  }
+
+  .group-form {
+    width: auto !important;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .form-item-half {
+    width: 100%;
+  }
+
+  .section-title {
+    font-size: 0.9rem;
+  }
+
+  .upstream-row,
+  .config-item-content {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .upstream-weight {
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .config-value {
+    flex: 1;
+  }
+
+  .upstream-actions,
+  .config-actions {
+    justify-content: flex-end;
+  }
+}
+
+/* Header规则相关样式 */
+.header-rule-row {
+  margin-bottom: 12px;
+}
+
+.header-rule-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.header-name {
+  flex: 0 0 200px;
+  position: relative;
+}
+
+.header-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+.header-value.removed-placeholder {
+  justify-content: center;
+  background-color: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0 12px;
+}
+
+.removed-text {
+  color: #999;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.header-action {
+  flex: 0 0 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 34px;
+}
+
+.header-actions {
+  flex: 0 0 32px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  height: 34px;
+}
+
+.error-message {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  font-size: 12px;
+  color: #d03050;
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .header-rule-content {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .header-name,
+  .header-value {
+    flex: 1;
+  }
+
+  .header-actions {
+    justify-content: flex-end;
+  }
 }
 </style>

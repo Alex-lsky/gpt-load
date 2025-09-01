@@ -29,6 +29,12 @@ export interface UpstreamInfo {
   weight: number;
 }
 
+export interface HeaderRule {
+  key: string;
+  value: string;
+  action: "set" | "remove";
+}
+
 export interface Group {
   id?: number;
   name: string;
@@ -43,6 +49,7 @@ export interface Group {
   api_keys?: APIKey[];
   endpoint?: string;
   param_overrides: Record<string, unknown>;
+  header_rules?: HeaderRule[];
   proxy_keys: string;
   created_at?: string;
   updated_at?: string;
@@ -52,7 +59,7 @@ export interface GroupConfigOption {
   key: string;
   name: string;
   description: string;
-  default_value: number;
+  default_value: string | number;
 }
 
 // GroupStatsResponse defines the complete statistics for a group.
@@ -77,7 +84,7 @@ export interface RequestStats {
   failure_rate: number;
 }
 
-export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT";
+export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT" | "KEY_DELETE";
 
 export interface KeyValidationResult {
   invalid_keys: number;
@@ -90,6 +97,11 @@ export interface KeyImportResult {
   ignored_count: number;
 }
 
+export interface KeyDeleteResult {
+  deleted_count: number;
+  ignored_count: number;
+}
+
 export interface TaskInfo {
   task_type: TaskType;
   is_running: boolean;
@@ -98,7 +110,7 @@ export interface TaskInfo {
   total?: number;
   started_at?: string;
   finished_at?: string;
-  result?: KeyValidationResult | KeyImportResult;
+  result?: KeyValidationResult | KeyImportResult | KeyDeleteResult;
   error?: string;
 }
 
@@ -115,11 +127,13 @@ export interface RequestLog {
   duration_ms: number;
   error_message: string;
   user_agent: string;
-  retries: number;
+  request_type: "retry" | "final";
   group_name?: string;
   key_value?: string;
+  model: string;
   upstream_addr: string;
   is_stream: boolean;
+  request_body?: string;
 }
 
 export interface Pagination {
@@ -139,12 +153,14 @@ export interface LogFilter {
   page_size?: number;
   group_name?: string;
   key_value?: string;
+  model?: string;
   is_success?: boolean | null;
   status_code?: number | null;
   source_ip?: string;
   error_contains?: string;
   start_time?: string | null;
   end_time?: string | null;
+  request_type?: "retry" | "final";
 }
 
 export interface DashboardStats {
@@ -171,7 +187,7 @@ export interface StatCard {
 // 仪表盘基础统计响应
 export interface DashboardStatsResponse {
   key_count: StatCard;
-  group_count: StatCard;
+  rpm: StatCard;
   request_count: StatCard;
   error_rate: StatCard;
 }

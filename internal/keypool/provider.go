@@ -7,7 +7,9 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
+	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -71,7 +73,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
-func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool) {
+func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
 	go func() {
 		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
@@ -81,11 +83,45 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
 		} else {
-			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+			if app_errors.IsUnCounted(errorMessage) {
+				logrus.WithFields(logrus.Fields{
+					"keyID": apiKey.ID,
+					"error": errorMessage,
+				}).Debug("Uncounted error, skipping failure handling")
+			} else {
+				if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+				}
 			}
 		}
 	}()
+}
+
+// executeTransactionWithRetry wraps a database transaction with a retry mechanism.
+func (p *KeyProvider) executeTransactionWithRetry(operation func(tx *gorm.DB) error) error {
+	const maxRetries = 3
+	const baseDelay = 50 * time.Millisecond
+	const maxJitter = 150 * time.Millisecond
+	var err error
+
+	for i := range maxRetries {
+		err = p.db.Transaction(operation)
+		if err == nil {
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "database is locked") {
+			jitter := time.Duration(rand.Intn(int(maxJitter)))
+			totalDelay := baseDelay + jitter
+			logrus.Debugf("Database is locked, retrying in %v... (attempt %d/%d)", totalDelay, i+1, maxRetries)
+			time.Sleep(totalDelay)
+			continue
+		}
+
+		break
+	}
+
+	return err
 }
 
 func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey string) error {
@@ -101,7 +137,7 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 		return nil
 	}
 
-	return p.db.Transaction(func(tx *gorm.DB) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", keyID, err)
@@ -149,7 +185,7 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	// 获取该分组的有效配置
 	blacklistThreshold := group.EffectiveConfig.BlacklistThreshold
 
-	return p.db.Transaction(func(tx *gorm.DB) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
@@ -413,27 +449,47 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 
 // RemoveInvalidKeys 移除组内所有无效的 Key。
 func (p *KeyProvider) RemoveInvalidKeys(groupID uint) (int64, error) {
-	var invalidKeys []models.APIKey
+	return p.removeKeysByStatus(groupID, models.KeyStatusInvalid)
+}
+
+// RemoveAllKeys 移除组内所有的 Key。
+func (p *KeyProvider) RemoveAllKeys(groupID uint) (int64, error) {
+	return p.removeKeysByStatus(groupID)
+}
+
+// removeKeysByStatus is a generic function to remove keys by status.
+// If no status is provided, it removes all keys in the group.
+func (p *KeyProvider) removeKeysByStatus(groupID uint, status ...string) (int64, error) {
+	var keysToRemove []models.APIKey
 	var removedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Find(&invalidKeys).Error; err != nil {
+		query := tx.Where("group_id = ?", groupID)
+		if len(status) > 0 {
+			query = query.Where("status IN ?", status)
+		}
+
+		if err := query.Find(&keysToRemove).Error; err != nil {
 			return err
 		}
 
-		if len(invalidKeys) == 0 {
+		if len(keysToRemove) == 0 {
 			return nil
 		}
 
-		result := tx.Where("id IN ?", pluckIDs(invalidKeys)).Delete(&models.APIKey{})
+		deleteQuery := tx.Where("group_id = ?", groupID)
+		if len(status) > 0 {
+			deleteQuery = deleteQuery.Where("status IN ?", status)
+		}
+		result := deleteQuery.Delete(&models.APIKey{})
 		if result.Error != nil {
 			return result.Error
 		}
 		removedCount = result.RowsAffected
 
-		for _, key := range invalidKeys {
+		for _, key := range keysToRemove {
 			if err := p.removeKeyFromStore(key.ID, key.GroupID); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to remove invalid key from store after DB deletion, rolling back transaction")
+				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to remove key from store after DB deletion, rolling back transaction")
 				return err
 			}
 		}

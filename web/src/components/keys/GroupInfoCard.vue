@@ -16,12 +16,14 @@ import {
   NGrid,
   NGridItem,
   NIcon,
+  NInput,
   NSpin,
   NTag,
   NTooltip,
   useDialog,
 } from "naive-ui";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
+import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 interface Props {
@@ -31,6 +33,7 @@ interface Props {
 interface Emits {
   (e: "refresh", value: Group): void;
   (e: "delete", value: Group): void;
+  (e: "copy-success", group: Group): void;
 }
 
 const props = defineProps<Props>();
@@ -41,7 +44,9 @@ const stats = ref<GroupStatsResponse | null>(null);
 const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
+const showCopyModal = ref(false);
 const delLoading = ref(false);
+const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
 const configOptions = ref<GroupConfigOption[]>([]);
 const showProxyKeys = ref(false);
@@ -54,6 +59,14 @@ const proxyKeysDisplay = computed(() => {
     return props.group.proxy_keys.replace(/,/g, "\n");
   }
   return maskProxyKeys(props.group.proxy_keys);
+});
+
+const hasAdvancedConfig = computed(() => {
+  return (
+    (props.group?.config && Object.keys(props.group.config).length > 0) ||
+    props.group?.param_overrides ||
+    (props.group?.header_rules && props.group.header_rules.length > 0)
+  );
 });
 
 async function copyProxyKeys() {
@@ -93,7 +106,8 @@ watch(
 
       const shouldRefresh =
         appState.lastCompletedTask.taskType === "KEY_VALIDATION" ||
-        appState.lastCompletedTask.taskType === "KEY_IMPORT";
+        appState.lastCompletedTask.taskType === "KEY_IMPORT" ||
+        appState.lastCompletedTask.taskType === "KEY_DELETE";
 
       if (isCurrentGroup && shouldRefresh) {
         // 刷新当前分组的统计数据
@@ -159,10 +173,21 @@ function handleEdit() {
   showEditModal.value = true;
 }
 
+function handleCopy() {
+  showCopyModal.value = true;
+}
+
 function handleGroupEdited(newGroup: Group) {
   showEditModal.value = false;
   if (newGroup) {
     emit("refresh", newGroup);
+  }
+}
+
+function handleGroupCopied(newGroup: Group) {
+  showCopyModal.value = false;
+  if (newGroup) {
+    emit("copy-success", newGroup);
   }
 }
 
@@ -171,26 +196,55 @@ async function handleDelete() {
     return;
   }
 
-  const d = dialog.warning({
+  dialog.warning({
     title: "删除分组",
-    content: `确定要删除分组 "${getGroupDisplayName(props.group)}" 吗？此操作不可恢复。`,
+    content: `确定要删除分组 "${getGroupDisplayName(
+      props.group
+    )}" 吗？此操作将删除分组及其下所有密钥，且不可恢复。`,
     positiveText: "确定",
     negativeText: "取消",
-    onPositiveClick: async () => {
-      d.loading = true;
-      delLoading.value = true;
+    onPositiveClick: () => {
+      confirmInput.value = ""; // Reset before opening second dialog
+      dialog.create({
+        title: "请输入分组名称以确认删除",
+        content: () =>
+          h("div", null, [
+            h("p", null, [
+              "这是一个非常危险的操作。为防止误操作，请输入分组名称 ",
+              h("strong", { style: { color: "#d03050" } }, props.group?.name),
+              " 以确认删除。",
+            ]),
+            h(NInput, {
+              value: confirmInput.value,
+              "onUpdate:value": v => {
+                confirmInput.value = v;
+              },
+              placeholder: "请输入分组名称",
+            }),
+          ]),
+        positiveText: "确认删除",
+        negativeText: "取消",
+        onPositiveClick: async () => {
+          if (confirmInput.value !== props.group?.name) {
+            window.$message.error("分组名称输入不正确");
+            return false; // Prevent dialog from closing
+          }
 
-      try {
-        if (props.group?.id) {
-          await keysApi.deleteGroup(props.group.id);
-          emit("delete", props.group);
-        }
-      } catch (error) {
-        console.error("删除分组失败:", error);
-      } finally {
-        d.loading = false;
-        delLoading.value = false;
-      }
+          delLoading.value = true;
+          try {
+            if (props.group?.id) {
+              await keysApi.deleteGroup(props.group.id);
+              emit("delete", props.group);
+              window.$message.success("分组已成功删除");
+            }
+          } catch (error) {
+            console.error("删除分组失败:", error);
+            window.$message.error("删除分组失败，请稍后重试");
+          } finally {
+            delLoading.value = false;
+          }
+        },
+      });
     },
   });
 }
@@ -226,6 +280,7 @@ async function copyUrl(url: string) {
 
 function resetPage() {
   showEditModal.value = false;
+  showCopyModal.value = false;
   expandedName.value = [];
 }
 </script>
@@ -238,9 +293,9 @@ function resetPage() {
           <div class="header-left">
             <h3 class="group-title">
               {{ group ? getGroupDisplayName(group) : "请选择分组" }}
-              <n-tooltip trigger="hover" v-if="group">
+              <n-tooltip trigger="hover" v-if="group && group.endpoint">
                 <template #trigger>
-                  <code class="group-url" @click="copyUrl(group?.endpoint || '')">
+                  <code class="group-url" @click="copyUrl(group.endpoint)">
                     {{ group.endpoint }}
                   </code>
                 </template>
@@ -249,6 +304,18 @@ function resetPage() {
             </h3>
           </div>
           <div class="header-actions">
+            <n-button
+              quaternary
+              circle
+              size="small"
+              @click="handleCopy"
+              title="复制分组"
+              :disabled="!group"
+            >
+              <template #icon>
+                <n-icon :component="CopyOutline" />
+              </template>
+            </n-button>
             <n-button quaternary circle size="small" @click="handleEdit" title="编辑分组">
               <template #icon>
                 <n-icon :component="Pencil" />
@@ -275,7 +342,7 @@ function resetPage() {
       <!-- 统计摘要区 -->
       <div class="stats-summary">
         <n-spin :show="loading" size="small">
-          <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
+          <n-grid cols="2 s:4" :x-gap="12" :y-gap="12" responsive="screen">
             <n-grid-item span="1">
               <n-statistic :label="`密钥数量：${stats?.key_stats?.total_keys ?? 0}`">
                 <n-tooltip trigger="hover">
@@ -379,7 +446,7 @@ function resetPage() {
               <div class="detail-section">
                 <h4 class="section-title">基础信息</h4>
                 <n-form label-placement="left" label-width="85px" label-align="right">
-                  <n-grid :cols="2">
+                  <n-grid cols="1 m:2">
                     <n-grid-item>
                       <n-form-item label="分组名称：">
                         {{ group?.name }}
@@ -469,12 +536,7 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div
-                class="detail-section"
-                v-if="
-                  (group?.config && Object.keys(group.config).length > 0) || group?.param_overrides
-                "
-              >
+              <div class="detail-section" v-if="hasAdvancedConfig">
                 <h4 class="section-title">高级配置</h4>
                 <n-form label-placement="left">
                   <n-form-item v-for="(value, key) in group?.config || {}" :key="key">
@@ -502,6 +564,28 @@ function resetPage() {
                     </template>
                     {{ value || "-" }}
                   </n-form-item>
+                  <n-form-item
+                    v-if="group?.header_rules && group.header_rules.length > 0"
+                    label="自定义请求头:"
+                    :span="2"
+                  >
+                    <div class="header-rules-display">
+                      <div
+                        v-for="(rule, index) in group.header_rules"
+                        :key="index"
+                        class="header-rule-item"
+                      >
+                        <n-tag :type="rule.action === 'remove' ? 'error' : 'default'" size="small">
+                          {{ rule.key }}
+                        </n-tag>
+                        <span class="header-separator">:</span>
+                        <span class="header-value" v-if="rule.action === 'set'">
+                          {{ rule.value || "(空值)" }}
+                        </span>
+                        <span class="header-removed" v-else>删除</span>
+                      </div>
+                    </div>
+                  </n-form-item>
                   <n-form-item v-if="group?.param_overrides" label="参数覆盖:" :span="2">
                     <pre class="config-json">{{
                       JSON.stringify(group?.param_overrides || "", null, 2)
@@ -516,6 +600,11 @@ function resetPage() {
     </n-card>
 
     <group-form-modal v-model:show="showEditModal" :group="group" @success="handleGroupEdited" />
+    <group-copy-modal
+      v-model:show="showCopyModal"
+      :source-group="group"
+      @success="handleGroupCopied"
+    />
   </div>
 </template>
 
@@ -735,5 +824,42 @@ function resetPage() {
   padding: 2px 6px;
   border-radius: 4px;
   display: inline-block;
+}
+
+/* Header rules display styles */
+.header-rules-display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(102, 126, 234, 0.03);
+  border-radius: var(--border-radius-sm);
+  padding: 8px;
+}
+
+.header-rule-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+}
+
+.header-separator {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.header-value {
+  color: #374151;
+  font-family: monospace;
+  background: rgba(59, 130, 246, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.header-removed {
+  color: #dc2626;
+  font-style: italic;
+  font-size: 0.8rem;
 }
 </style>

@@ -8,6 +8,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -60,6 +61,12 @@ type KeyTextRequest struct {
 // GroupIDRequest defines a generic payload for operations requiring only a group ID.
 type GroupIDRequest struct {
 	GroupID uint `json:"group_id" binding:"required"`
+}
+
+// ValidateGroupKeysRequest defines the payload for validating keys in a group.
+type ValidateGroupKeysRequest struct {
+	GroupID uint   `json:"group_id" binding:"required"`
+	Status  string `json:"status,omitempty"`
 }
 
 // AddMultipleKeys handles creating new keys from a text block within a specific group.
@@ -139,7 +146,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		return
 	}
 
-	searchKeyword := c.Query("key")
+	searchKeyword := c.Query("key_value")
 
 	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
 
@@ -183,6 +190,33 @@ func (s *Server) DeleteMultipleKeys(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+// DeleteMultipleKeysAsync handles deleting keys from a text block within a specific group using async task.
+func (s *Server) DeleteMultipleKeysAsync(c *gin.Context) {
+	var req KeyTextRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	group, ok := s.findGroupByID(c, req.GroupID)
+	if !ok {
+		return
+	}
+
+	if err := validateKeysText(req.KeysText); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+		return
+	}
+
+	taskStatus, err := s.KeyDeleteService.StartDeleteTask(group, req.KeysText)
+	if err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrTaskInProgress, err.Error()))
+		return
+	}
+
+	response.Success(c, taskStatus)
 }
 
 // RestoreMultipleKeys handles restoring keys from a text block within a specific group.
@@ -241,7 +275,9 @@ func (s *Server) TestMultipleKeys(c *gin.Context) {
 		return
 	}
 
+	start := time.Now()
 	results, err := s.KeyService.TestMultipleKeys(group, req.KeysText)
+	duration := time.Since(start).Milliseconds()
 	if err != nil {
 		if strings.Contains(err.Error(), "batch size exceeds the limit") {
 			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
@@ -253,14 +289,23 @@ func (s *Server) TestMultipleKeys(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, results)
+	response.Success(c, gin.H{
+		"results":        results,
+		"total_duration": duration,
+	})
 }
 
 // ValidateGroupKeys initiates a manual validation task for all keys in a group.
 func (s *Server) ValidateGroupKeys(c *gin.Context) {
-	var req GroupIDRequest
+	var req ValidateGroupKeysRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Validate status if provided
+	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
 		return
 	}
 
@@ -275,7 +320,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 		return
 	}
 
-	taskStatus, err := s.KeyManualValidationService.StartValidationTask(group)
+	taskStatus, err := s.KeyManualValidationService.StartValidationTask(group, req.Status)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrTaskInProgress, err.Error()))
 		return
@@ -324,6 +369,27 @@ func (s *Server) ClearAllInvalidKeys(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": fmt.Sprintf("%d invalid keys cleared.", rowsAffected)})
+}
+
+// ClearAllKeys deletes all keys from a group.
+func (s *Server) ClearAllKeys(c *gin.Context) {
+	var req GroupIDRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	rowsAffected, err := s.KeyService.ClearAllKeys(req.GroupID)
+	if err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.Success(c, gin.H{"message": fmt.Sprintf("%d keys cleared.", rowsAffected)})
 }
 
 // ExportKeys handles exporting keys to a text file.

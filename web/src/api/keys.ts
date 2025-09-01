@@ -44,12 +44,31 @@ export const keysApi = {
     return res.data || [];
   },
 
+  // 复制分组
+  async copyGroup(
+    groupId: number,
+    copyData: {
+      copy_keys: "none" | "valid_only" | "all";
+    }
+  ): Promise<{
+    group: Group;
+  }> {
+    const res = await http.post(`/groups/${groupId}/copy`, copyData);
+    return res.data;
+  },
+
+  // 获取分组列表（简化版）
+  async listGroups(): Promise<Group[]> {
+    const res = await http.get("/groups/list");
+    return res.data || [];
+  },
+
   // 获取分组的密钥列表
   async getGroupKeys(params: {
     group_id: number;
     page: number;
     page_size: number;
-    key?: string;
+    key_value?: string;
     status?: KeyStatus;
   }): Promise<{
     items: APIKey[];
@@ -91,13 +110,14 @@ export const keysApi = {
   async testKeys(
     group_id: number,
     keys_text: string
-  ): Promise<
-    {
+  ): Promise<{
+    results: {
       key_value: string;
       is_valid: boolean;
       error: string;
-    }[]
-  > {
+    }[];
+    total_duration: number;
+  }> {
     const res = await http.post(
       "/keys/test-multiple",
       {
@@ -123,6 +143,15 @@ export const keysApi = {
     return res.data;
   },
 
+  // 异步批量删除密钥
+  async deleteKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
+    const res = await http.post("/keys/delete-async", {
+      group_id,
+      keys_text,
+    });
+    return res.data;
+  },
+
   // 测试密钥
   restoreKeys(group_id: number, keys_text: string): Promise<null> {
     return http.post("/keys/restore-multiple", {
@@ -140,6 +169,17 @@ export const keysApi = {
   clearAllInvalidKeys(group_id: number): Promise<{ data: { message: string } }> {
     return http.post(
       "/keys/clear-all-invalid",
+      { group_id },
+      {
+        hideMessage: true,
+      }
+    );
+  },
+
+  // 清空所有密钥
+  clearAllKeys(group_id: number): Promise<{ data: { message: string } }> {
+    return http.post(
+      "/keys/clear-all",
       { group_id },
       {
         hideMessage: true,
@@ -175,14 +215,21 @@ export const keysApi = {
   },
 
   // 验证分组密钥
-  async validateGroupKeys(groupId: number): Promise<{
+  async validateGroupKeys(
+    groupId: number,
+    status?: "active" | "invalid"
+  ): Promise<{
     is_running: boolean;
     group_name: string;
     processed: number;
     total: number;
     started_at: string;
   }> {
-    const res = await http.post("/keys/validate-group", { group_id: groupId });
+    const payload: { group_id: number; status?: string } = { group_id: groupId };
+    if (status) {
+      payload.status = status;
+    }
+    const res = await http.post("/keys/validate-group", payload);
     return res.data;
   },
 

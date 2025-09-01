@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"strings"
 	"time"
@@ -126,7 +127,9 @@ func Auth(authConfig types.AuthConfig) gin.HandlerFunc {
 
 		key := extractAuthKey(c)
 
-		if key == "" || key != authConfig.Key {
+		isValid := key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(authConfig.Key)) == 1
+
+		if !isValid {
 			response.Error(c, app_errors.ErrUnauthorized)
 			c.Abort()
 			return
@@ -154,14 +157,11 @@ func ProxyAuth(gm *services.GroupManager) gin.HandlerFunc {
 			return
 		}
 
-		// Then check System-wide keys (O(1) lookup)
-		if _, ok := group.EffectiveConfig.ProxyKeysMap[key]; ok {
-			c.Next()
-			return
-		}
+		// Check both key collections to prevent timing attacks
+		_, existsInEffective := group.EffectiveConfig.ProxyKeysMap[key]
+		_, existsInGroup := group.ProxyKeysMap[key]
 
-		// Check Group keys first (O(1) lookup)
-		if _, ok := group.ProxyKeysMap[key]; ok {
+		if existsInEffective || existsInGroup {
 			c.Next()
 			return
 		}
@@ -232,6 +232,13 @@ func isMonitoringEndpoint(path string) bool {
 
 // extractAuthKey extracts a auth key.
 func extractAuthKey(c *gin.Context) string {
+	// Query key
+	if key := c.Query("key"); key != "" {
+		query := c.Request.URL.Query()
+		query.Del("key")
+		c.Request.URL.RawQuery = query.Encode()
+		return key
+	}
 
 	// Bearer token
 	authHeader := c.GetHeader("Authorization")
@@ -249,11 +256,6 @@ func extractAuthKey(c *gin.Context) string {
 
 	// X-Goog-Api-Key
 	if key := c.GetHeader("X-Goog-Api-Key"); key != "" {
-		return key
-	}
-
-	// Query key
-	if key := c.Query("key"); key != "" {
 		return key
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
+	"gpt-load/internal/utils"
 	"io"
 	"net/http"
 	"net/url"
@@ -71,8 +72,31 @@ func (ch *GeminiChannel) IsStreamRequest(c *gin.Context, bodyBytes []byte) bool 
 	return false
 }
 
+func (ch *GeminiChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
+	// gemini format
+	path := c.Request.URL.Path
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if part == "models" && i+1 < len(parts) {
+			modelPart := parts[i+1]
+			return strings.Split(modelPart, ":")[0]
+		}
+	}
+
+	// openai format
+	type modelPayload struct {
+		Model string `json:"model"`
+	}
+	var p modelPayload
+	if err := json.Unmarshal(bodyBytes, &p); err == nil && p.Model != "" {
+		return strings.TrimPrefix(p.Model, "models/")
+	}
+
+	return ""
+}
+
 // ValidateKey checks if the given API key is valid by making a generateContent request.
-func (ch *GeminiChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
+func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, error) {
 	upstreamURL := ch.getUpstreamURL()
 	if upstreamURL == nil {
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
@@ -83,7 +107,7 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, key string) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("failed to create gemini validation path: %w", err)
 	}
-	reqURL += "?key=" + key
+	reqURL += "?key=" + apiKey.KeyValue
 
 	payload := gin.H{
 		"contents": []gin.H{
@@ -103,14 +127,20 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, key string) (bool, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// Apply custom header rules if available
+	if len(group.HeaderRuleList) > 0 {
+		headerCtx := utils.NewHeaderVariableContext(group, apiKey)
+		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
+	}
+
 	resp, err := ch.HTTPClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("failed to send validation request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// A 200 OK status code indicates the key is valid.
-	if resp.StatusCode == http.StatusOK {
+	// Any 2xx status code indicates the key is valid.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return true, nil
 	}
 

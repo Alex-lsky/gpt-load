@@ -111,6 +111,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		groups.PUT("/:id", serverHandler.UpdateGroup)
 		groups.DELETE("/:id", serverHandler.DeleteGroup)
 		groups.GET("/:id/stats", serverHandler.GetGroupStats)
+		groups.POST("/:id/copy", serverHandler.CopyGroup)
 	}
 
 	// Key Management Routes
@@ -121,9 +122,11 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		keys.POST("/add-multiple", serverHandler.AddMultipleKeys)
 		keys.POST("/add-async", serverHandler.AddMultipleKeysAsync)
 		keys.POST("/delete-multiple", serverHandler.DeleteMultipleKeys)
+		keys.POST("/delete-async", serverHandler.DeleteMultipleKeysAsync)
 		keys.POST("/restore-multiple", serverHandler.RestoreMultipleKeys)
 		keys.POST("/restore-all-invalid", serverHandler.RestoreAllInvalidKeys)
 		keys.POST("/clear-all-invalid", serverHandler.ClearAllInvalidKeys)
+		keys.POST("/clear-all", serverHandler.ClearAllKeys)
 		keys.POST("/validate-group", serverHandler.ValidateGroupKeys)
 		keys.POST("/test-multiple", serverHandler.TestMultipleKeys)
 	}

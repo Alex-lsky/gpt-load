@@ -7,6 +7,7 @@ import (
 	"fmt"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
+	"gpt-load/internal/utils"
 	"io"
 	"net/http"
 	"net/url"
@@ -60,8 +61,19 @@ func (ch *OpenAIChannel) IsStreamRequest(c *gin.Context, bodyBytes []byte) bool 
 	return false
 }
 
+func (ch *OpenAIChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
+	type modelPayload struct {
+		Model string `json:"model"`
+	}
+	var p modelPayload
+	if err := json.Unmarshal(bodyBytes, &p); err == nil {
+		return p.Model
+	}
+	return ""
+}
+
 // ValidateKey checks if the given API key is valid by making a chat completion request.
-func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
+func (ch *OpenAIChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, error) {
 	upstreamURL := ch.getUpstreamURL()
 	if upstreamURL == nil {
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
@@ -82,7 +94,6 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, err
 		"messages": []gin.H{
 			{"role": "user", "content": "hi"},
 		},
-		"max_tokens": 100,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -93,8 +104,14 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Authorization", "Bearer "+apiKey.KeyValue)
 	req.Header.Set("Content-Type", "application/json")
+
+	// Apply custom header rules if available
+	if len(group.HeaderRuleList) > 0 {
+		headerCtx := utils.NewHeaderVariableContext(group, apiKey)
+		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
+	}
 
 	resp, err := ch.HTTPClient.Do(req)
 	if err != nil {
@@ -102,8 +119,8 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, err
 	}
 	defer resp.Body.Close()
 
-	// A 200 OK status code indicates the key is valid and can make requests.
-	if resp.StatusCode == http.StatusOK {
+	// Any 2xx status code indicates the key is valid.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return true, nil
 	}
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { settingsApi, type SettingCategory } from "@/api/settings";
+import { settingsApi, type Setting, type SettingCategory } from "@/api/settings";
 import ProxyKeysInput from "@/components/common/ProxyKeysInput.vue";
 import { HelpCircle, Save } from "@vicons/ionicons5";
 import {
@@ -13,14 +13,16 @@ import {
   NInput,
   NInputNumber,
   NSpace,
+  NSwitch,
   NTooltip,
   useMessage,
+  type FormItemRule,
 } from "naive-ui";
 import { ref } from "vue";
 
 const settingList = ref<SettingCategory[]>([]);
 const formRef = ref();
-const form = ref<Record<string, string | number>>({});
+const form = ref<Record<string, string | number | boolean>>({});
 const isSaving = ref(false);
 const message = useMessage();
 
@@ -37,12 +39,15 @@ async function fetchSettings() {
 }
 
 function initForm() {
-  form.value = settingList.value.reduce((acc: Record<string, string | number>, category) => {
-    category.settings?.forEach(setting => {
-      acc[setting.key] = setting.value;
-    });
-    return acc;
-  }, {});
+  form.value = settingList.value.reduce(
+    (acc: Record<string, string | number | boolean>, category) => {
+      category.settings?.forEach(setting => {
+        acc[setting.key] = setting.value;
+      });
+      return acc;
+    },
+    {}
+  );
 }
 
 async function handleSubmit() {
@@ -59,6 +64,36 @@ async function handleSubmit() {
     isSaving.value = false;
   }
 }
+
+function generateValidationRules(item: Setting): FormItemRule[] {
+  const rules: FormItemRule[] = [];
+  if (item.required) {
+    const rule: FormItemRule = {
+      required: true,
+      message: `请输入 ${item.name}`,
+      trigger: ["input", "blur"],
+    };
+    if (item.type === "int") {
+      rule.type = "number";
+    }
+    rules.push(rule);
+  }
+  if (item.type === "int" && item.min_value !== undefined && item.min_value !== null) {
+    rules.push({
+      validator: (_rule: FormItemRule, value: number) => {
+        if (value === null || value === undefined) {
+          return true;
+        }
+        if (item.min_value !== undefined && item.min_value !== null && value < item.min_value) {
+          return new Error(`值不能小于 ${item.min_value}`);
+        }
+        return true;
+      },
+      trigger: ["input", "blur"],
+    });
+  }
+  return rules;
+}
 </script>
 
 <template>
@@ -73,16 +108,13 @@ async function handleSubmit() {
           hoverable
           bordered
         >
-          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:3 xl:3">
+          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:4 xl:4">
             <n-grid-item
               v-for="item in category.settings"
               :key="item.key"
               :span="item.key === 'proxy_keys' ? 3 : 1"
             >
-              <n-form-item
-                :path="item.key"
-                :rule="{ required: true, message: `请输入 ${item.name}` }"
-              >
+              <n-form-item :path="item.key" :rule="generateValidationRules(item)">
                 <template #label>
                   <n-space align="center" :size="4" :wrap-item="false">
                     <n-tooltip trigger="hover" placement="top">
@@ -108,6 +140,11 @@ async function handleSubmit() {
                   placeholder="请输入数值"
                   clearable
                   style="width: 100%"
+                  size="small"
+                />
+                <n-switch
+                  v-else-if="item.type === 'bool'"
+                  v-model:value="form[item.key] as boolean"
                   size="small"
                 />
                 <proxy-keys-input

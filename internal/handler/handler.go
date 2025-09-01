@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"time"
 
@@ -24,6 +25,7 @@ type Server struct {
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
 	KeyImportService           *services.KeyImportService
+	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -39,6 +41,7 @@ type NewServerParams struct {
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
 	KeyImportService           *services.KeyImportService
+	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -54,6 +57,7 @@ func NewServer(params NewServerParams) *Server {
 		TaskService:                params.TaskService,
 		KeyService:                 params.KeyService,
 		KeyImportService:           params.KeyImportService,
+		KeyDeleteService:           params.KeyDeleteService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
 	}
@@ -83,7 +87,9 @@ func (s *Server) Login(c *gin.Context) {
 
 	authConfig := s.config.GetAuthConfig()
 
-	if req.AuthKey == authConfig.Key {
+	isValid := subtle.ConstantTimeCompare([]byte(req.AuthKey), []byte(authConfig.Key)) == 1
+
+	if isValid {
 		c.JSON(http.StatusOK, LoginResponse{
 			Success: true,
 			Message: "Authentication successful",
@@ -91,7 +97,7 @@ func (s *Server) Login(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusUnauthorized, LoginResponse{
 			Success: false,
-			Message: "Invalid authentication key",
+			Message: "Authentication failed",
 		})
 	}
 }
