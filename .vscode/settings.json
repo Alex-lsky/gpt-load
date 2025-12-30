@@ -83,5 +83,48 @@
   // Emmet 设置
   "emmet.includeLanguages": {
     "vue": "html"
+  },
+
+  // Go 设置
+  "go.toolsManagement.autoUpdate": true,
+  "go.useLanguageServer": true,
+  "go.formatTool": "goimports",
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "package",
+  "go.vetOnSave": "package",
+  "go.buildOnSave": "off",
+  "go.installDependenciesWhenBuilding": true,
+  "go.gocodeAutoBuild": false,
+  "go.testFlags": ["-v", "-race"],
+  "go.testTimeout": "30s",
+  "go.coverOnSave": false,
+  "go.coverOnSingleTest": false,
+  "go.coverOnTestPackage": false,
+  "go.coverageDecorator": {
+    "type": "gutter",
+    "coveredHighlightColor": "rgba(64,128,128,0.5)",
+    "uncoveredHighlightColor": "rgba(128,64,64,0.25)",
+    "coveredGutterStyle": "blockblue",
+    "uncoveredGutterStyle": "blockred"
+  },
+
+  // Go 文件关联
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    },
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4
+  },
+  "[go.mod]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "[go.sum]": {
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4
   }
 }

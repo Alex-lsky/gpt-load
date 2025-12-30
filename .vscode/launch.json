@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Chrome",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}"
+    },
+
+    {
+      "name": "启动后端服务器",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/main.go",
+      "env": {
+        "GIN_MODE": "debug"
+      },
+      "args": [],
+      "console": "internalConsole",
+      "preLaunchTask": "构建前端"
+    },
+    {
+      "name": "启动后端服务器 (开发模式)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/main.go",
+      "env": {
+        "GIN_MODE": "debug",
+        "GO_ENV": "development"
+      },
+      "args": [],
+      "console": "internalConsole",
+      "buildFlags": "-race"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "全栈调试 (前端+后端)",
+      "configurations": ["启动后端服务器"],
+      "preLaunchTask": "启动前端开发服务器",
+      "stopAll": true
+    }
+  ]
+}

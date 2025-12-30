@@ -179,16 +179,16 @@ GPT-Load adopts a dual-layer configuration architecture:
 
 **Security Configuration:**
 
-| Setting        | Environment Variable | Default | Description                                                                       |
-| -------------- | -------------------- | ------- | --------------------------------------------------------------------------------- |
-| Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password |
+| Setting        | Environment Variable | Default | Description                                                                                                                                      |
+| -------------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password                                                      |
 | Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. See [Data Encryption Migration](#data-encryption-migration) |
 
 **Database Configuration:**
 
-| Setting             | Environment Variable | Default              | Description                                         |
-| ------------------- | -------------------- | -------------------- | --------------------------------------------------- |
-| Database Connection | `DATABASE_DSN`       | `./data/gpt-load.db` | Database connection string (DSN) or file path       |
+| Setting             | Environment Variable | Default              | Description                                             |
+| ------------------- | -------------------- | -------------------- | ------------------------------------------------------- |
+| Database Connection | `DATABASE_DSN`       | `./data/gpt-load.db` | Database connection string (DSN) or file path           |
 | Redis Connection    | `REDIS_DSN`          | -                    | Redis connection string, uses memory storage when empty |
 
 **Performance & CORS Configuration:**
@@ -196,7 +196,7 @@ GPT-Load adopts a dual-layer configuration architecture:
 | Setting                 | Environment Variable      | Default                       | Description                                     |
 | ----------------------- | ------------------------- | ----------------------------- | ----------------------------------------------- |
 | Max Concurrent Requests | `MAX_CONCURRENT_REQUESTS` | 100                           | Maximum concurrent requests allowed by system   |
-| Enable CORS             | `ENABLE_CORS`             | false                          | Whether to enable Cross-Origin Resource Sharing |
+| Enable CORS             | `ENABLE_CORS`             | false                         | Whether to enable Cross-Origin Resource Sharing |
 | Allowed Origins         | `ALLOWED_ORIGINS`         | -                             | Allowed origins, comma-separated                |
 | Allowed Methods         | `ALLOWED_METHODS`         | `GET,POST,PUT,DELETE,OPTIONS` | Allowed HTTP methods                            |
 | Allowed Headers         | `ALLOWED_HEADERS`         | `*`                           | Allowed request headers, comma-separated        |
@@ -215,10 +215,10 @@ GPT-Load adopts a dual-layer configuration architecture:
 
 GPT-Load automatically reads proxy settings from environment variables to make requests to upstream AI providers.
 
-| Setting     | Environment Variable | Default | Description                                     |
-| ----------- | -------------------- | ------- | ----------------------------------------------- |
-| HTTP Proxy  | `HTTP_PROXY`         | -       | Proxy server address for HTTP requests          |
-| HTTPS Proxy | `HTTPS_PROXY`        | -       | Proxy server address for HTTPS requests         |
+| Setting     | Environment Variable | Default | Description                                                  |
+| ----------- | -------------------- | ------- | ------------------------------------------------------------ |
+| HTTP Proxy  | `HTTP_PROXY`         | -       | Proxy server address for HTTP requests                       |
+| HTTPS Proxy | `HTTPS_PROXY`        | -       | Proxy server address for HTTPS requests                      |
 | No Proxy    | `NO_PROXY`           | -       | Comma-separated list of hosts or domains to bypass the proxy |
 
 Supported Proxy Protocol Formats:
@@ -233,13 +233,13 @@ Supported Proxy Protocol Formats:
 
 **Basic Settings:**
 
-| Setting            | Field Name                           | Default                 | Group Override | Description                                  |
-| ------------------ | ------------------------------------ | ----------------------- | -------------- | -------------------------------------------- |
-| Project URL        | `app_url`                            | `http://localhost:3001` | ❌             | Project base URL                             |
-| Global Proxy Keys  | `proxy_keys`                         | Initial value from `AUTH_KEY` | ❌         | Globally effective proxy keys, comma-separated |
-| Log Retention Days | `request_log_retention_days`         | 7                       | ❌             | Request log retention days, 0 for no cleanup |
-| Log Write Interval | `request_log_write_interval_minutes` | 1                       | ❌             | Log write to database cycle (minutes)        |
-| Enable Request Body Logging | `enable_request_body_logging` | false | ✅ | Whether to log complete request body content in request logs |
+| Setting                     | Field Name                           | Default                       | Group Override | Description                                                  |
+| --------------------------- | ------------------------------------ | ----------------------------- | -------------- | ------------------------------------------------------------ |
+| Project URL                 | `app_url`                            | `http://localhost:3001`       | ❌             | Project base URL                                             |
+| Global Proxy Keys           | `proxy_keys`                         | Initial value from `AUTH_KEY` | ❌             | Globally effective proxy keys, comma-separated               |
+| Log Retention Days          | `request_log_retention_days`         | 7                             | ❌             | Request log retention days, 0 for no cleanup                 |
+| Log Write Interval          | `request_log_write_interval_minutes` | 1                             | ❌             | Log write to database cycle (minutes)                        |
+| Enable Request Body Logging | `enable_request_body_logging`        | false                         | ✅             | Whether to log complete request body content in request logs |
 
 **Request Settings:**
 
@@ -342,6 +342,7 @@ make run
 ### Important Notes
 
 ⚠️ **Important Reminders**:
+
 - **Once ENCRYPTION_KEY is lost, encrypted data CANNOT be recovered!** Please securely backup this key. Consider using a password manager or secure key management system
 - **Service must be stopped** before migration to avoid data inconsistency
 - Strongly recommended to **backup the database** in case migration fails and recovery is needed
@@ -558,6 +559,48 @@ response = client.messages.create(
 > **Important Note**: As a transparent proxy service, GPT-Load completely preserves the native API formats and authentication methods of various AI services. You only need to replace the endpoint address and use the **Proxy Key** configured in the management interface for seamless migration.
 
 </details>
+
+## Development Setup
+
+For developers who want to contribute to GPT-Load or set up a development environment, we provide comprehensive VSCode workspace configurations and development scripts.
+
+### Quick Development Setup
+
+1. **Open VSCode Workspace**:
+
+   ```bash
+   code gpt-load.code-workspace
+   ```
+
+2. **Install Recommended Extensions**: VSCode will prompt to install recommended extensions
+
+3. **Use Development Scripts**:
+
+   ```bash
+   # Windows - Full development environment
+   scripts\dev.bat
+
+   # Windows PowerShell - More options
+   .\scripts\dev.ps1 -Help
+   .\scripts\dev.ps1 -Frontend  # Frontend only
+   .\scripts\dev.ps1 -Backend   # Backend only
+   .\scripts\dev.ps1 -Check     # Environment check
+   ```
+
+4. **VSCode Debug Configurations**:
+   - **Launch Backend Server**: Build frontend and start backend
+   - **Launch Backend (Dev Mode)**: Development mode with race detection
+   - **Full-Stack Debug**: Start both frontend and backend simultaneously
+
+### Development Features
+
+- **Hot Reload**: Frontend development server with instant updates
+- **Race Detection**: Backend development mode with Go race detector
+- **Integrated Debugging**: VSCode breakpoints and step-through debugging
+- **Code Quality**: Automatic formatting, linting, and type checking
+- **Task Automation**: Pre-configured build, test, and deployment tasks
+
+For detailed development instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Related Projects
 
